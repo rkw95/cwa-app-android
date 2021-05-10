@@ -1,15 +1,18 @@
 package de.rki.coronawarnapp.vaccination.ui.list
 
+import android.graphics.Bitmap
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.asLiveData
-import androidx.lifecycle.viewModelScope
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import de.rki.coronawarnapp.exception.ExceptionCategory
+import de.rki.coronawarnapp.exception.reporting.report
 import de.rki.coronawarnapp.presencetracing.checkins.qrcode.QrCodeGenerator
 import de.rki.coronawarnapp.util.TimeAndDateExtensions.toDayFormat
 import de.rki.coronawarnapp.util.TimeAndDateExtensions.toLocalDateUserTz
 import de.rki.coronawarnapp.util.TimeStamper
+import de.rki.coronawarnapp.util.coroutine.DispatcherProvider
 import de.rki.coronawarnapp.util.ui.SingleLiveEvent
 import de.rki.coronawarnapp.util.viewmodel.CWAViewModel
 import de.rki.coronawarnapp.util.viewmodel.CWAViewModelFactory
@@ -27,12 +30,14 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import org.joda.time.Days
 import org.joda.time.LocalDate
+import timber.log.Timber
 
 class VaccinationListViewModel @AssistedInject constructor(
     private val vaccinationRepository: VaccinationRepository,
     private val timeStamper: TimeStamper,
     private val qrCodeGenerator: QrCodeGenerator,
-    @Assisted private val vaccinatedPersonIdentifier: String
+    @Assisted private val vaccinatedPersonIdentifier: String,
+    dispatcherProvider: DispatcherProvider,
 ) : CWAViewModel() {
 
     val events = SingleLiveEvent<Event>()
@@ -73,7 +78,7 @@ class VaccinationListViewModel @AssistedInject constructor(
         )
     }.catch {
         // TODO Error Handling in an upcoming subtask
-    }.asLiveData()
+    }.asLiveData(dispatcherProvider.Default)
 
     // TODO: after using actual values from the repository, we only pass VaccinatedPerson here instead of all these
     // arguments
@@ -88,7 +93,6 @@ class VaccinationListViewModel @AssistedInject constructor(
     ) = mutableListOf<VaccinationListItem>().apply {
         if (vaccinationStatus == COMPLETE) {
             if (proofCertificates.isNotEmpty()) {
-
                 val proofCertificate = proofCertificates.first()
                 val expiresAt = proofCertificate.expiresAt.toLocalDateUserTz()
                 val today = timeStamper.nowUTC.toLocalDateUserTz()
@@ -96,10 +100,8 @@ class VaccinationListViewModel @AssistedInject constructor(
 
                 add(
                     VaccinationListCertificateCardItem(
-                        qrCodeData = "TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO-TODO",
                         remainingValidityInDays = remainingValidityInDays,
-                        viewModelScope = viewModelScope,
-                        qrCodeGenerator = qrCodeGenerator
+                        qrCode = generateQrCode()
                     )
                 )
             }
@@ -131,6 +133,16 @@ class VaccinationListViewModel @AssistedInject constructor(
             }
         }
     }.toList()
+
+    private suspend fun generateQrCode(): Bitmap? =
+        try {
+            // TODO replace qr-code input
+            qrCodeGenerator.createQrCode("This is a placeholder text for qr-code data")
+        } catch (e: Exception) {
+            Timber.d(e, "generateQrCode failed")
+            e.report(ExceptionCategory.UI) // OR Report it using errorLiveDate
+            null
+        }
 
     data class UiState(
         val listItems: List<VaccinationListItem>,
